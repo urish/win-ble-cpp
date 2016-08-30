@@ -8,7 +8,6 @@
 #include <Windows.Devices.Bluetooth.Advertisement.h>
 #include <Windows.Devices.Bluetooth.GenericAttributeProfile.h>
 #include <wrl/wrappers/corewrappers.h>
-#include <wrl/client.h>
 #include <wrl/event.h>
 
 using namespace ABI::Windows::Devices;
@@ -102,30 +101,39 @@ int main()
 
 	Microsoft::WRL::Wrappers::RoInitializeWrapper initialize(RO_INIT_MULTITHREADED);
 
-	Microsoft::WRL::ComPtr<Bluetooth::Advertisement::IBluetoothLEAdvertisementWatcher> watcher;
-	IInspectable *filterInsp;
-	HRESULT hr = RoActivateInstance(
-		Microsoft::WRL::Wrappers::HStringReference(RuntimeClass_Windows_Devices_Bluetooth_Advertisement_BluetoothLEAdvertisementWatcher).Get(),
-		&filterInsp);
-	VLOG(1) << "HResult/filter is:" << hr;
+	HRESULT hr;
+	Microsoft::WRL::ComPtr<Enumeration::IDeviceInformationStatics> deviceInformationStatics;
+	hr = RoGetActivationFactory(
+		Microsoft::WRL::Wrappers::HStringReference(RuntimeClass_Windows_Devices_Enumeration_DeviceInformation).Get(),
+		__uuidof(Enumeration::IDeviceInformationStatics),
+		(void**)deviceInformationStatics.GetAddressOf());
+	VLOG(1) << "deviceInformationStatics:" << hr;
+	Microsoft::WRL::ComPtr<Enumeration::IDeviceWatcher> watcher;
 
-	hr = filterInsp->QueryInterface(__uuidof(Bluetooth::Advertisement::IBluetoothLEAdvertisementWatcher), (void**)watcher.GetAddressOf());
-	VLOG(1) << "Query Interface is:" << hr;
+	/* TODO 
+	Microsoft::WRL::ComPtr<Platform::Collections::Vector<HSTRING>> requestedProperties = Microsoft::WRL::Make<Platform::Collections::Vector<HSTRING>>();
+	requestedProperties.Get()->Append(Microsoft::WRL::Wrappers::HStringReference(L"System.Devices.Aep.DeviceAddress").Get());
+	requestedProperties.Get()->Append(Microsoft::WRL::Wrappers::HStringReference(L"System.Devices.Aep.IsConnected").Get());
+
+	Microsoft::WRL::ComPtr<ABI::Windows::Foundation::Collections::IIterable<HSTRING>> requestedPropertiesIterable;
+	hr = requestedPropertiesInsp->QueryInterface(__uuidof(ABI::Windows::Storage::Streams::IDataWriter), (void**)requestedProperties.GetAddressOf());
+
+	deviceInformationStatics.Get()->CreateWatcherAqsFilterAndAdditionalProperties(
+		Microsoft::WRL::Wrappers::HStringReference(L"(System.Devices.Aep.ProtocolId:=\"{bb7bb05e-5972-42b5-94fc-76eaa7084d49}\")").Get(),
+		requestedPropertiesIterable.Get(),
+		watcher.GetAddressOf());
+	*/
+
+	deviceInformationStatics.Get()->CreateWatcher(watcher.GetAddressOf());
+	VLOG(1) << "Watcher:" << watcher.Get();
 
 	EventRegistrationToken addedToken;
-	auto callback = Microsoft::WRL::Callback<ABI::Windows::Foundation::ITypedEventHandler<Bluetooth::Advertisement::BluetoothLEAdvertisementWatcher*, Bluetooth::Advertisement::BluetoothLEAdvertisementReceivedEventArgs*>>(
-		[](Bluetooth::Advertisement::IBluetoothLEAdvertisementWatcher* watcher, Bluetooth::Advertisement::IBluetoothLEAdvertisementReceivedEventArgs* arg) -> HRESULT
+	auto callback = Microsoft::WRL::Callback<ABI::Windows::Foundation::ITypedEventHandler<Enumeration::DeviceWatcher*, Enumeration::DeviceInformation*>>(
+		[](Enumeration::IDeviceWatcher* watcher, Enumeration::IDeviceInformation* deviceInfo) -> HRESULT
 	{
-		UINT64 addr;
-		
-		arg->get_BluetoothAddress(&addr);
-		VLOG(1) << "******ADVERTISEMENT RESULT!" << addr;
-
-		Microsoft::WRL::ComPtr<Bluetooth::Advertisement::IBluetoothLEAdvertisement> adv;
-		arg->get_Advertisement(adv.GetAddressOf());
-
 		HSTRING localName;
-		adv.Get()->get_LocalName(&localName);
+		VLOG(1) << "Found some device";
+		deviceInfo->get_Name(&localName);
 		if (localName) {
 			UINT32 len;
 			PCWSTR pwzLocalName = WindowsGetStringRawBuffer(localName, &len);
@@ -133,50 +141,16 @@ int main()
 			char* buffer = new char[charLen + 1];
 			WideCharToMultiByte(CP_ACP, 0, pwzLocalName, len, buffer, charLen, NULL, NULL);
 			buffer[charLen] = 0;
-			VLOG(1) << "******Local name:" << buffer;
+			VLOG(1) << "Device name:" << buffer;
 		} else {
 			VLOG(1) << "******no local name";
-		}
-
-		Microsoft::WRL::ComPtr<ABI::Windows::Foundation::Collections::IVector<GUID>> serviceUuids;
-		adv.Get()->get_ServiceUuids(serviceUuids.GetAddressOf());
-		
-		if (serviceUuids) {
-			unsigned int size = 0;
-			serviceUuids.Get()->get_Size(&size);
-			VLOG(1) << "Count of services: " << size;
-			for (int i = 0; i < size; i++) {
-				GUID guid;
-				serviceUuids.Get()->GetAt(i, &guid);
-
-				OLECHAR* bstrGuid;
-				StringFromCLSID(guid, &bstrGuid);
-				int charLen = WideCharToMultiByte(CP_ACP, 0, bstrGuid, wcslen(bstrGuid), NULL, 0, NULL, NULL);
-				char* buffer = new char[charLen + 1];
-				WideCharToMultiByte(CP_ACP, 0, bstrGuid, wcslen(bstrGuid), buffer, charLen, NULL, NULL);
-				buffer[charLen] = 0;
-
-				if (!strcmp(buffer, "{0000180A-0000-1000-8000-00805F9B34FB}")) {
-					VLOG(1) << "Found device!!!!!!!!!!!!!!!!!!!";
-					connectDevice(addr, guid);
-				}
-
-				VLOG(1) << "* Guid: " << buffer;
-
-			}
 		}
 
 		return S_OK;
 
 	});
-	VLOG(1) << "Scanning mode:" <<  watcher->put_ScanningMode(Bluetooth::Advertisement::BluetoothLEScanningMode_Active);
-	VLOG(1) << "Add recevied:" << watcher->add_Received(callback.Get(), &addedToken);
-	VLOG(1) << "Start:" << watcher->Start();
-
-	ABI::Windows::Devices::Bluetooth::Advertisement::BluetoothLEAdvertisementWatcherStatus status = Bluetooth::Advertisement::BluetoothLEAdvertisementWatcherStatus_Created;
-	VLOG(1) << "Get status:" << watcher->get_Status(&status);
-	VLOG(1) << "Status is " << status;
-
+	VLOG(1) << "Add recevied:" << watcher.Get()->add_Added(callback.Get(), &addedToken);
+	VLOG(1) << "Start:" << watcher.Get()->Start();
 
 	VLOG(1) << "Sleep.5s";
 	Sleep(25000);
