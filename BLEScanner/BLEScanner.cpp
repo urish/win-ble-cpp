@@ -1,4 +1,4 @@
-// BLEScanner.cpp : Defines the entry point for the console application.
+// BLEScanner.cpp : Scans for a Magic Blue BLE bulb, connects to it and sends it commands
 //
 
 #include "stdafx.h"
@@ -9,154 +9,110 @@
 #include <Windows.Devices.Bluetooth.GenericAttributeProfile.h>
 #include <wrl/wrappers/corewrappers.h>
 #include <wrl/event.h>
+#include <collection.h>
+#include <ppltasks.h>
 
-using namespace ABI::Windows::Devices;
+using namespace Platform;
+using namespace Windows::Devices;
 
-#define VLOG(n) std::cout << std::endl
+#define TARGET_DEVICE_NAME L"LEDBLE-5BF8CCEF" 
 
-#pragma comment(lib,"runtimeobject")
-
-void connectDevice(UINT64 bleAddr, GUID serviceUuuid) {
-	HRESULT hr;
-	Microsoft::WRL::ComPtr<Bluetooth::IBluetoothLEDeviceStatics> bluetoothLEDeviceStatics;
-	hr = RoGetActivationFactory(
-		Microsoft::WRL::Wrappers::HStringReference(RuntimeClass_Windows_Devices_Bluetooth_BluetoothLEDevice).Get(),
-		__uuidof(Bluetooth::IBluetoothLEDeviceStatics),
-		(void**)bluetoothLEDeviceStatics.GetAddressOf());
-	VLOG(1) << "bluetoothLEDeviceStatics:" << hr;
-
-	Microsoft::WRL::ComPtr<ABI::Windows::Foundation::IAsyncOperation<Bluetooth::BluetoothLEDevice*>> operation;
-	bluetoothLEDeviceStatics.Get()->FromBluetoothAddressAsync(bleAddr, operation.GetAddressOf());
-
-	Microsoft::WRL::ComPtr<Bluetooth::IBluetoothLEDevice> device;
-	do {
-		hr = operation.Get()->GetResults(device.GetAddressOf());
-	} while (hr != 0);
-
-	Microsoft::WRL::ComPtr<Bluetooth::GenericAttributeProfile::IGattDeviceService> service;
-	hr = device.Get()->GetGattService(serviceUuuid, service.GetAddressOf());
-	VLOG(1) << "get_Service: " << hr;
-
-	Microsoft::WRL::ComPtr<Bluetooth::GenericAttributeProfile::IGattCharacteristicStatics> gattCharacteristicStatics;
-	hr = RoGetActivationFactory(
-		Microsoft::WRL::Wrappers::HStringReference(RuntimeClass_Windows_Devices_Bluetooth_GenericAttributeProfile_GattCharacteristic).Get(),
-		__uuidof(Bluetooth::GenericAttributeProfile::IGattCharacteristicStatics),
-		(void**)gattCharacteristicStatics.GetAddressOf());
-
-	GUID charUuid;
-	VLOG(1) << "Convert: " << gattCharacteristicStatics.Get()->ConvertShortIdToUuid(0x5200, &charUuid);
-
-	Microsoft::WRL::ComPtr<ABI::Windows::Foundation::Collections::IVectorView<Bluetooth::GenericAttributeProfile::GattCharacteristic*>> characteristics;
-	hr = service.Get()->GetCharacteristics(charUuid, characteristics.GetAddressOf());
-	VLOG(1) << "GetCharacterstics: " << hr;
-
-	OLECHAR* bstrGuid;
-	StringFromCLSID(charUuid, &bstrGuid);
-	int charLen = WideCharToMultiByte(CP_ACP, 0, bstrGuid, wcslen(bstrGuid), NULL, 0, NULL, NULL);
-	char* buffer = new char[charLen + 1];
-	WideCharToMultiByte(CP_ACP, 0, bstrGuid, wcslen(bstrGuid), buffer, charLen, NULL, NULL);
-	buffer[charLen] = 0;
-	VLOG(1) << "Char UUID: " << buffer;
-
-	unsigned int size;
-	characteristics.Get()->get_Size(&size);
-	VLOG(1) << "# Characteristics " << size;
-
-	if (size > 0){
-		Microsoft::WRL::ComPtr<Bluetooth::GenericAttributeProfile::IGattCharacteristic> characteristic;
-
-		hr = characteristics.Get()->GetAt(0, characteristic.GetAddressOf());
-		VLOG(1) << "Char 0: " << hr;
-
-		Microsoft::WRL::ComPtr<ABI::Windows::Foundation::IAsyncOperation<Bluetooth::GenericAttributeProfile::GattCommunicationStatus>> writeOperation;
-
-		Microsoft::WRL::ComPtr<ABI::Windows::Storage::Streams::IDataWriter> writer;
-		IInspectable *iWriterInsp;
-		hr = RoActivateInstance(
-			Microsoft::WRL::Wrappers::HStringReference(RuntimeClass_Windows_Storage_Streams_DataWriter).Get(),
-			&iWriterInsp);
-		VLOG(1) << "Construct Writer " << hr;
-		hr = iWriterInsp->QueryInterface(__uuidof(ABI::Windows::Storage::Streams::IDataWriter), (void**)writer.GetAddressOf());
-		VLOG(1) << "Query Interface is:" << hr;
-
-		BYTE bytes[4] = { 90, 90, 90, 90 };
-		VLOG(1) << "Write bytes:  " << writer.Get()->WriteBytes(4, bytes);
-
-		Microsoft::WRL::ComPtr<ABI::Windows::Storage::Streams::IBuffer> buffer;
-		VLOG(1) << "Get buffer:" << writer.Get()->DetachBuffer(buffer.GetAddressOf());
-
-		VLOG(1) << "Write value async: " << characteristic.Get()->WriteValueAsync(buffer.Get(), writeOperation.GetAddressOf());
-	}
-
-	Bluetooth::BluetoothConnectionStatus status;
-	hr = device.Get()->get_ConnectionStatus(&status);
-	VLOG(1) << "get_ConnectionStatus: " << hr;
-	VLOG(1) << "get_ConnectionStatus: -> " << status;
-	for (;;);
-}
-
-int main()
-{
-	int a;
-
+int main(Array<String^>^ args) {
 	Microsoft::WRL::Wrappers::RoInitializeWrapper initialize(RO_INIT_MULTITHREADED);
 
-	HRESULT hr;
-	Microsoft::WRL::ComPtr<Enumeration::IDeviceInformationStatics> deviceInformationStatics;
-	hr = RoGetActivationFactory(
-		Microsoft::WRL::Wrappers::HStringReference(RuntimeClass_Windows_Devices_Enumeration_DeviceInformation).Get(),
-		__uuidof(Enumeration::IDeviceInformationStatics),
-		(void**)deviceInformationStatics.GetAddressOf());
-	VLOG(1) << "deviceInformationStatics:" << hr;
-	Microsoft::WRL::ComPtr<Enumeration::IDeviceWatcher> watcher;
+	auto serviceUUID = Bluetooth::GenericAttributeProfile::GattDeviceService::ConvertShortIdToUuid(0xffe5);
+	auto characteristicUUID = Bluetooth::GenericAttributeProfile::GattCharacteristic::ConvertShortIdToUuid(0xffe9);
+	Bluetooth::GenericAttributeProfile::GattDeviceService^ deviceService;
 
-	/* TODO 
-	Microsoft::WRL::ComPtr<Platform::Collections::Vector<HSTRING>> requestedProperties = Microsoft::WRL::Make<Platform::Collections::Vector<HSTRING>>();
-	requestedProperties.Get()->Append(Microsoft::WRL::Wrappers::HStringReference(L"System.Devices.Aep.DeviceAddress").Get());
-	requestedProperties.Get()->Append(Microsoft::WRL::Wrappers::HStringReference(L"System.Devices.Aep.IsConnected").Get());
+	String^ queryString = L"(System.Devices.Aep.ProtocolId:=\"{bb7bb05e-5972-42b5-94fc-76eaa7084d49}\")";
+	Windows::Foundation::Collections::IVector<String^>^ requestedProperties = ref new Collections::Vector<String^>();
+	requestedProperties->Append(L"System.Devices.Aep.DeviceAddress");
+	requestedProperties->Append(L"System.Devices.Aep.IsConnected");
+	auto deviceWatcher = Enumeration::DeviceInformation::CreateWatcher(queryString, requestedProperties, Enumeration::DeviceInformationKind::AssociationEndpoint);
 
-	Microsoft::WRL::ComPtr<ABI::Windows::Foundation::Collections::IIterable<HSTRING>> requestedPropertiesIterable;
-	hr = requestedPropertiesInsp->QueryInterface(__uuidof(ABI::Windows::Storage::Streams::IDataWriter), (void**)requestedProperties.GetAddressOf());
+	deviceWatcher->Added += ref new Windows::Foundation::TypedEventHandler<Enumeration::DeviceWatcher ^, Enumeration::DeviceInformation ^>(
+		[](Enumeration::DeviceWatcher ^watcher, Enumeration::DeviceInformation ^deviceInfo)->void {
+		std::wcout << L"Found some BLE device" << std::endl;
+		String^ localName = deviceInfo->Name;
+		String^ prop = safe_cast<String^>(deviceInfo->Properties->Lookup(L"System.Devices.Aep.DeviceAddress"));
+		Boolean connected = safe_cast<Boolean>(deviceInfo->Properties->Lookup(L"System.Devices.Aep.IsConnected"));
 
-	deviceInformationStatics.Get()->CreateWatcherAqsFilterAndAdditionalProperties(
-		Microsoft::WRL::Wrappers::HStringReference(L"(System.Devices.Aep.ProtocolId:=\"{bb7bb05e-5972-42b5-94fc-76eaa7084d49}\")").Get(),
-		requestedPropertiesIterable.Get(),
-		watcher.GetAddressOf());
-	*/
-
-	deviceInformationStatics.Get()->CreateWatcher(watcher.GetAddressOf());
-	VLOG(1) << "Watcher:" << watcher.Get();
-
-	EventRegistrationToken addedToken;
-	auto callback = Microsoft::WRL::Callback<ABI::Windows::Foundation::ITypedEventHandler<Enumeration::DeviceWatcher*, Enumeration::DeviceInformation*>>(
-		[](Enumeration::IDeviceWatcher* watcher, Enumeration::IDeviceInformation* deviceInfo) -> HRESULT
-	{
-		HSTRING localName;
-		VLOG(1) << "Found some device";
-		deviceInfo->get_Name(&localName);
 		if (localName) {
-			UINT32 len;
-			PCWSTR pwzLocalName = WindowsGetStringRawBuffer(localName, &len);
-			int charLen = WideCharToMultiByte(CP_ACP, 0, pwzLocalName, len, NULL, 0, NULL, NULL);
-			char* buffer = new char[charLen + 1];
-			WideCharToMultiByte(CP_ACP, 0, pwzLocalName, len, buffer, charLen, NULL, NULL);
-			buffer[charLen] = 0;
-			VLOG(1) << "Device name:" << buffer;
-		} else {
-			VLOG(1) << "******no local name";
+			std::wcout << L"Device name:" << deviceInfo->Name->Data() << std::endl;
+			std::wcout << L"Adress:" << prop->Data() << std::endl;
+			std::wcout << L"Paired? " << (deviceInfo->Pairing->IsPaired ? L"YES" : L"NO") << std::endl;
+
+			std::wcout << L"Connected? " << (connected ? L"YES" : L"NO") << std::endl;
+
+			if (localName->Equals(TARGET_DEVICE_NAME)) {
+				auto customPairing = deviceInfo->Pairing->Custom;
+				customPairing->PairingRequested += ref new Windows::Foundation::TypedEventHandler<Windows::Devices::Enumeration::DeviceInformationCustomPairing ^, Windows::Devices::Enumeration::DevicePairingRequestedEventArgs ^>(
+					[](Enumeration::DeviceInformationCustomPairing ^pairing, Enumeration::DevicePairingRequestedEventArgs ^args) {
+					std::wcout << "Device pairing request: " << args->PairingKind.ToString()->Data() << std::endl;
+					args->Accept();
+				});
+
+				std::wcout << "*** Pairing with the device..." << std::endl;
+				auto task = concurrency::create_task(customPairing->PairAsync(Enumeration::DevicePairingKinds::None | Enumeration::DevicePairingKinds::ConfirmOnly));
+				task.then([](Enumeration::DevicePairingResult^ result)->void {
+					std::wcout << "Device pairing result: " << result->Status.ToString()->Data() << std::endl;
+				});
+			}
+
+			std::wcout << L"---" << std::endl;
 		}
+	}
+	);
 
-		return S_OK;
-
+	deviceWatcher->Updated += ref new Windows::Foundation::TypedEventHandler<Windows::Devices::Enumeration::DeviceWatcher ^, Windows::Devices::Enumeration::DeviceInformationUpdate ^>(
+		[](Enumeration::DeviceWatcher ^watcher, Enumeration::DeviceInformationUpdate ^deviceInfoUpdate)->void {
+		std::wcout << "Device Watcher: Updated" << std::endl;
 	});
-	VLOG(1) << "Add recevied:" << watcher.Get()->add_Added(callback.Get(), &addedToken);
-	VLOG(1) << "Start:" << watcher.Get()->Start();
 
-	VLOG(1) << "Sleep.5s";
-	Sleep(25000);
-	VLOG(1) << "After-Sleep.5s";
+	deviceWatcher->Start();
 
+
+	String^ selector = Bluetooth::GenericAttributeProfile::GattDeviceService::GetDeviceSelectorFromUuid(serviceUUID);
+	auto gattServiceWatcher = Enumeration::DeviceInformation::CreateWatcher(selector);
+
+	gattServiceWatcher->Added += ref new Windows::Foundation::TypedEventHandler<Enumeration::DeviceWatcher ^, Enumeration::DeviceInformation ^>(
+		[characteristicUUID, deviceService](Enumeration::DeviceWatcher ^watcher, Enumeration::DeviceInformation ^deviceInfo)->void {
+		std::wcout << L"Found a device with the requested services: " << deviceInfo->Name->Data() << std::endl;
+		auto deviceService = concurrency::create_task(Bluetooth::GenericAttributeProfile::GattDeviceService::FromIdAsync(deviceInfo->Id)).get();
+		auto characteristic = deviceService->GetCharacteristics(characteristicUUID)->GetAt(0);
+
+		auto writer = ref new Windows::Storage::Streams::DataWriter();
+		auto data = new byte[7]{ 0x56, 0, 0xff, 0, 0x00, 0xf0, 0xaa };
+		writer->WriteBytes(ref new Array<byte>(data, 7));
+		auto status = concurrency::create_task(characteristic->WriteValueAsync(writer->DetachBuffer(), Bluetooth::GenericAttributeProfile::GattWriteOption::WriteWithoutResponse)).get();
+		std::wcout << "Write result: " << status.ToString()->Data() << std::endl;
+
+		for (;;) {
+			Sleep(1000);
+			writer = ref new Windows::Storage::Streams::DataWriter();
+			data = new byte[7]{ 0x56, 0xff, 0xff, 0, 0x00, 0xf0, 0xaa };
+			writer->WriteBytes(ref new Array<byte>(data, 7));
+			status = concurrency::create_task(characteristic->WriteValueAsync(writer->DetachBuffer(), Bluetooth::GenericAttributeProfile::GattWriteOption::WriteWithoutResponse)).get();
+			std::wcout << "Write result: " << status.ToString()->Data() << std::endl;
+			Sleep(1000);
+
+			writer = ref new Windows::Storage::Streams::DataWriter();
+			data = new byte[7]{ 0x56, 0xff, 0, 0, 0x00, 0xf0, 0xaa };
+			writer->WriteBytes(ref new Array<byte>(data, 7));
+			status = concurrency::create_task(characteristic->WriteValueAsync(writer->DetachBuffer(), Bluetooth::GenericAttributeProfile::GattWriteOption::WriteWithoutResponse)).get();
+			std::wcout << "Write result: " << status.ToString()->Data() << std::endl;
+		}
+	});
+
+	gattServiceWatcher->Updated += ref new Windows::Foundation::TypedEventHandler<Windows::Devices::Enumeration::DeviceWatcher ^, Windows::Devices::Enumeration::DeviceInformationUpdate ^>(
+		[](Enumeration::DeviceWatcher ^watcher, Enumeration::DeviceInformationUpdate ^deviceInfoUpdate)->void {
+		// Nada
+	});
+
+	gattServiceWatcher->Start();
+
+	int a;
 	std::cin >> a;
-    return 0;
+	return 0;
 }
 

@@ -22,7 +22,7 @@
     <ProjectGuid>{D415077E-CC9E-4C6B-919B-80F4F467307E}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>BLEScanner</RootNamespace>
-    <WindowsTargetPlatformVersion>10.0.10586.0</WindowsTargetPlatformVersion>
+    <WindowsTargetPlatformVersion>10.0.14393.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -88,6 +88,9 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
+      <CompileAsWinRT>true</CompileAsWinRT>
+      <MinimalRebuild>false</MinimalRebuild>
+      <AdditionalUsingDirectories>C:\Program Files %28x86%29\Microsoft Visual Studio 14.0\VC\vcpackages;C:\Program Files %28x86%29\Windows Kits\10\UnionMetadata;C:\Program Files %28x86%29\Windows Kits\10\References\Windows.Networking.Connectivity.WwanContract\1.0.0.0;C:\Program Files %28x86%29\Windows Kits\10\References\Windows.Foundation.UniversalApiContract\3.0.0.0;C:\Program Files %28x86%29\Windows Kits\10\References\Windows.Foundation.FoundationContract\2.0.0.0;%(AdditionalUsingDirectories)</AdditionalUsingDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
