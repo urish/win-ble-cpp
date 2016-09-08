@@ -1,5 +1,12 @@
 // BLEScanner.cpp : Scans for a Magic Blue BLE bulb, connects to it and sends it commands
 //
+// Copyright (C) 2016, Uri Shaked. License: MIT.
+//
+// ***
+// See here for info about the bulb protocol: 
+// https://medium.com/@urish/reverse-engineering-a-bluetooth-lightbulb-56580fcb7546
+// ***
+//
 
 #include "stdafx.h"
 #include <iostream>
@@ -103,6 +110,7 @@ int main(Array<String^>^ args) {
 		auto deviceService = concurrency::create_task(Bluetooth::GenericAttributeProfile::GattDeviceService::FromIdAsync(deviceInfo->Id)).get();
 		auto characteristic = deviceService->GetCharacteristics(characteristicUUID)->GetAt(0);
 
+		// Set Bulb color to Green
 		auto writer = ref new Windows::Storage::Streams::DataWriter();
 		auto data = new byte[7]{ 0x56, 0, 0xff, 0, 0x00, 0xf0, 0xaa };
 		writer->WriteBytes(ref new Array<byte>(data, 7));
@@ -110,14 +118,16 @@ int main(Array<String^>^ args) {
 		std::wcout << "Write result: " << status.ToString()->Data() << std::endl;
 
 		for (;;) {
+			// Set Bulb color to Yellow
 			Sleep(1000);
 			writer = ref new Windows::Storage::Streams::DataWriter();
 			data = new byte[7]{ 0x56, 0xff, 0xff, 0, 0x00, 0xf0, 0xaa };
 			writer->WriteBytes(ref new Array<byte>(data, 7));
 			status = concurrency::create_task(characteristic->WriteValueAsync(writer->DetachBuffer(), Bluetooth::GenericAttributeProfile::GattWriteOption::WriteWithoutResponse)).get();
 			std::wcout << "Write result: " << status.ToString()->Data() << std::endl;
-			Sleep(1000);
 
+			// Set Bulb color to Red
+			Sleep(1000);
 			writer = ref new Windows::Storage::Streams::DataWriter();
 			data = new byte[7]{ 0x56, 0xff, 0, 0, 0x00, 0xf0, 0xaa };
 			writer->WriteBytes(ref new Array<byte>(data, 7));
@@ -137,4 +147,3 @@ int main(Array<String^>^ args) {
 	std::cin >> a;
 	return 0;
 }
-
