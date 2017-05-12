@@ -11,7 +11,7 @@ License: MIT.
 ## What does it do?
 
 1. Scans for BLE devices with a `0xffe5` Primary Service
-2. Pairs with the first matching device
-3. Once paired, writes to Characterstic number `0xffe9` and changes the color of the bulb every second (alternates between red and yellow)
+2. Connects to any matching device
+3. Writes to Characterstic number `0xffe9` and changes the color of the bulb every second (alternates between red and yellow)
 
-Note: You need to make sure the bulb is unpaired prior to running this code, as the Magic Blue bulb does not store the bonding information, which means it is not possible to connect to it again after the initial pairing.
+Note: This only works on Windows 10 Creators Update. Prior Windows 10 versions did not support BLE connections with unpaired devices.
