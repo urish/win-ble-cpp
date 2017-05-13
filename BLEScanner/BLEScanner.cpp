@@ -20,6 +20,8 @@
 #include <string>
 #include <sstream> 
 #include <iomanip>
+#include <experimental/resumable>
+#include <pplawait.h>
 
 using namespace Platform;
 using namespace Windows::Devices;
@@ -39,36 +41,29 @@ std::wstring formatBluetoothAddress(unsigned long long BluetoothAddress) {
 	return ret.str();
 }
 
-void connectToBulb(unsigned long long bluetoothAddress) {
-	auto leDevice = concurrency::create_task(Bluetooth::BluetoothLEDevice::FromBluetoothAddressAsync(bluetoothAddress)).get();
-	auto servicesResult = concurrency::create_task(leDevice->GetGattServicesForUuidAsync(serviceUUID)).get();
+concurrency::task<void> setColor(Bluetooth::GenericAttributeProfile::GattCharacteristic^ characteristic, byte red, byte green, byte blue) {
+	auto writer = ref new Windows::Storage::Streams::DataWriter();
+	auto data = new byte[7]{ 0x56, red, green, blue, 0x00, 0xf0, 0xaa };
+	writer->WriteBytes(ref new Array<byte>(data, 7));
+	auto status = co_await characteristic->WriteValueAsync(writer->DetachBuffer(), Bluetooth::GenericAttributeProfile::GattWriteOption::WriteWithoutResponse);
+	std::wcout << "Write result: " << status.ToString()->Data() << std::endl;
+}
+
+concurrency::task<void> connectToBulb(unsigned long long bluetoothAddress) {
+	auto leDevice = co_await Bluetooth::BluetoothLEDevice::FromBluetoothAddressAsync(bluetoothAddress);
+	auto servicesResult = co_await leDevice->GetGattServicesForUuidAsync(serviceUUID);
 	auto service = servicesResult->Services->GetAt(0);
-	auto characteristicsResult = concurrency::create_task(service->GetCharacteristicsForUuidAsync(characteristicUUID)).get();
+	auto characteristicsResult = co_await service->GetCharacteristicsForUuidAsync(characteristicUUID);
 	auto characteristic = characteristicsResult->Characteristics->GetAt(0);
 
-	// Set Bulb color to Green
-	auto writer = ref new Windows::Storage::Streams::DataWriter();
-	auto data = new byte[7]{ 0x56, 0, 0xff, 0, 0x00, 0xf0, 0xaa };
-	writer->WriteBytes(ref new Array<byte>(data, 7));
-	auto status = concurrency::create_task(characteristic->WriteValueAsync(writer->DetachBuffer(), Bluetooth::GenericAttributeProfile::GattWriteOption::WriteWithoutResponse)).get();
-	std::wcout << "Write result: " << status.ToString()->Data() << std::endl;
+	co_await setColor(characteristic, 0, 0xff, 0); // Green
 
 	for (;;) {
-		// Set Bulb color to Yellow
 		Sleep(1000);
-		writer = ref new Windows::Storage::Streams::DataWriter();
-		data = new byte[7]{ 0x56, 0xff, 0xff, 0, 0x00, 0xf0, 0xaa };
-		writer->WriteBytes(ref new Array<byte>(data, 7));
-		status = concurrency::create_task(characteristic->WriteValueAsync(writer->DetachBuffer(), Bluetooth::GenericAttributeProfile::GattWriteOption::WriteWithoutResponse)).get();
-		std::wcout << "Write result: " << status.ToString()->Data() << std::endl;
+		co_await setColor(characteristic, 0xff, 0xff, 0);	// Yellow
 
-		// Set Bulb color to Red
 		Sleep(1000);
-		writer = ref new Windows::Storage::Streams::DataWriter();
-		data = new byte[7]{ 0x56, 0xff, 0, 0, 0x00, 0xf0, 0xaa };
-		writer->WriteBytes(ref new Array<byte>(data, 7));
-		status = concurrency::create_task(characteristic->WriteValueAsync(writer->DetachBuffer(), Bluetooth::GenericAttributeProfile::GattWriteOption::WriteWithoutResponse)).get();
-		std::wcout << "Write result: " << status.ToString()->Data() << std::endl;
+		co_await setColor(characteristic, 0xff, 0, 0);	// Red
 	}
 }
 
